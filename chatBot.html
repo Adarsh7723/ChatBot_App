@@ -15,6 +15,51 @@
     <script src="https://unpkg.com/supersimpledev/babel.js"></script>
 
     <script type="text/babel">
+        // Helper function to call Huggingface API for response
+        async function getHuggingfaceResponse(prompt) {
+          const API_URL = 'https://api-inference.huggingface.co/models/gpt2';
+
+          try {
+            const response = await fetch(API_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                inputs: prompt,
+                options: { wait_for_model: true }
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`API error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+              throw new Error(`Model error: ${data.error}`);
+            }
+
+            if (Array.isArray(data) && data.length > 0) {
+              return data[0].generated_text.trim();
+            }
+
+            return "Sorry, I couldn't generate a response.";
+          } catch (error) {
+            console.error('Error fetching Huggingface API:', error);
+            return "Sorry, I encountered an error while generating the response.";
+          }
+        }
+
+        // Override Chatbot.getResponse with async version
+        Chatbot.getResponse = (function() {
+          return async function(prompt) {
+            const response = await getHuggingfaceResponse(prompt);
+            return response;
+          }
+        })();
+
         function ChatInput({ chatMessages, setChatMessages }){
           const [inputText, setInputText]= React.useState('');
 
@@ -22,7 +67,7 @@
             setInputText(event.target.value);
           };
 
-          function sendMessage(){
+          async function sendMessage(){
             if(!inputText.trim()) return;
 
             const userMessage = {
@@ -42,12 +87,10 @@
             setChatMessages(newChatMessages);
             setInputText('');
 
-            // Simulate async response with loading effect
-            setTimeout(() => {
-              const response = Chatbot.getResponse(inputText);
+            try {
+              const response = await Chatbot.getResponse(inputText);
 
               setChatMessages((prevMessages) => {
-                // Replace loading message with response
                 return prevMessages.map(msg => {
                   if (msg.id === loadingMessage.id) {
                     return {
@@ -60,7 +103,21 @@
                   return msg;
                 });
               });
-            }, 1500);
+            } catch (error) {
+              setChatMessages((prevMessages) => {
+                return prevMessages.map(msg => {
+                  if (msg.id === loadingMessage.id) {
+                    return {
+                      message: "Error: Unable to fetch response.",
+                      sender: "robot",
+                      id: msg.id,
+                      loading: false
+                    };
+                  }
+                  return msg;
+                });
+              });
+            }
           };
 
           return(
